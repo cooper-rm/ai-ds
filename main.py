@@ -2,9 +2,8 @@ import argparse
 import sys
 
 from src.state import create_state
-from src.nodes.init_project import init_project
-from src.nodes.environment import ensure_env
-from src.orchestrator import orchestrator
+from src.nodes.setup.init_project import init_project
+from src.nodes.setup.environment import ensure_env
 
 
 def main():
@@ -17,6 +16,8 @@ def main():
     state = create_state(filepath=args.filepath, goal=args.goal, name=args.name)
     init_project(state)
     ensure_env(state, __file__, sys.argv[1:])
+
+    from src.orchestrator import orchestrator
     state = orchestrator(state)
 
 

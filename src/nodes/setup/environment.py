@@ -8,7 +8,7 @@ def _get_paths(project_dir: str) -> tuple:
     """Get venv path and python path from project directory."""
     venv_path = os.path.join(project_dir, "venv")
     venv_python = os.path.join(venv_path, "bin", "python")
-    repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
     requirements = os.path.join(repo_root, "requirements.txt")
     return venv_path, venv_python, requirements
 

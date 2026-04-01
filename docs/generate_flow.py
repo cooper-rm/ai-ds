@@ -25,7 +25,7 @@ dot = graphviz.Digraph(
     },
 )
 
-# --- Step 1: User runs command ---
+# --- Step 1: CLI ---
 dot.node(
     "CMD",
     label='''<
@@ -33,94 +33,126 @@ dot.node(
             <TR><TD><B><FONT POINT-SIZE="16">1. CLI Input</FONT></B></TD></TR>
             <TR><TD><FONT POINT-SIZE="10" COLOR="#999999">User runs the program</FONT></TD></TR>
             <HR/>
-            <TR><TD ALIGN="LEFT"><FONT POINT-SIZE="10" COLOR="#888888">python main.py --filepath data.csv --goal eda</FONT></TD></TR>
+            <TR><TD ALIGN="LEFT"><FONT POINT-SIZE="10" COLOR="#888888">python main.py --filepath data.csv --goal eda --name my_project</FONT></TD></TR>
         </TABLE>
     >''',
     fillcolor="#f8d7da",
     color="#dc3545",
 )
 
-# --- Step 2: Parse args + build state ---
+# --- Step 2: Init project ---
 dot.node(
-    "STATE",
+    "INIT",
     label='''<
         <TABLE BORDER="0" CELLSPACING="0" CELLPADDING="6">
-            <TR><TD><B><FONT POINT-SIZE="16">2. Build State</FONT></B></TD></TR>
-            <TR><TD><FONT POINT-SIZE="10" COLOR="#999999">create_state() initializes shared memory</FONT></TD></TR>
+            <TR><TD><B><FONT POINT-SIZE="16">2. Init Project</FONT></B></TD></TR>
+            <TR><TD><FONT POINT-SIZE="10" COLOR="#999999">Creates project directory and state.json</FONT></TD></TR>
             <HR/>
-            <TR><TD ALIGN="LEFT"><FONT POINT-SIZE="10" COLOR="#888888">state = {<BR ALIGN="LEFT"/>    "filepath": "data.csv",<BR ALIGN="LEFT"/>    "goal": "eda",<BR ALIGN="LEFT"/>    "data": None,<BR ALIGN="LEFT"/>    "summary": None,<BR ALIGN="LEFT"/>    "decisions": [],<BR ALIGN="LEFT"/>    "history": [],<BR ALIGN="LEFT"/>}</FONT></TD></TR>
+            <TR><TD ALIGN="LEFT"><FONT POINT-SIZE="10" COLOR="#888888">projects/my_project/<BR ALIGN="LEFT"/>  ├── state.json<BR ALIGN="LEFT"/>  └── venv/</FONT></TD></TR>
         </TABLE>
     >''',
     fillcolor="#e2d9f3",
     color="#6f42c1",
 )
 
-# --- Step 3: Orchestrator picks pipeline ---
+# --- Step 3: Environment ---
 dot.node(
-    "ORCH",
+    "ENV",
     label='''<
         <TABLE BORDER="0" CELLSPACING="0" CELLPADDING="6">
-            <TR><TD><B><FONT POINT-SIZE="16">3. Orchestrator Selects Pipeline</FONT></B></TD></TR>
-            <TR><TD><FONT POINT-SIZE="10" COLOR="#999999">Reads state["goal"] and looks up the agent sequence</FONT></TD></TR>
+            <TR><TD><B><FONT POINT-SIZE="16">3. Environment</FONT></B></TD></TR>
+            <TR><TD><FONT POINT-SIZE="10" COLOR="#999999">Creates venv, installs deps, re-launches inside it</FONT></TD></TR>
             <HR/>
-            <TR><TD ALIGN="LEFT"><FONT POINT-SIZE="10" COLOR="#888888">goal = "eda"<BR ALIGN="LEFT"/>pipeline = [load_data, summarize]<BR ALIGN="LEFT"/>Begins looping through agents in order</FONT></TD></TR>
+            <TR><TD ALIGN="LEFT"><FONT POINT-SIZE="10" COLOR="#888888">Saves state → re-launches with venv python<BR ALIGN="LEFT"/>Child process loads state from JSON</FONT></TD></TR>
         </TABLE>
     >''',
-    fillcolor="#cce5ff",
-    color="#0066cc",
+    fillcolor="#e2d9f3",
+    color="#6f42c1",
 )
 
-# --- Step 4: load_data ---
+# --- Step 4: Analyze file ---
+dot.node(
+    "ANALYZE",
+    label='''<
+        <TABLE BORDER="0" CELLSPACING="0" CELLPADDING="6">
+            <TR><TD><B><FONT POINT-SIZE="16">4. Analyze File</FONT></B></TD></TR>
+            <TR><TD><FONT POINT-SIZE="10" COLOR="#999999">Inspect file before loading</FONT></TD></TR>
+            <HR/>
+            <TR><TD ALIGN="LEFT"><FONT POINT-SIZE="10" COLOR="#888888">Checks file type, size, row/column count<BR ALIGN="LEFT"/>Estimates memory requirements<BR ALIGN="LEFT"/>Installs deps if needed (e.g. openpyxl)<BR ALIGN="LEFT"/>Writes to state["nodes"]["analyze_file"]</FONT></TD></TR>
+        </TABLE>
+    >''',
+    fillcolor="#d4edda",
+    color="#28a745",
+)
+
+# --- Step 5: Validate file (LLM gate) ---
+dot.node(
+    "VALIDATE",
+    label='''<
+        <TABLE BORDER="0" CELLSPACING="0" CELLPADDING="6">
+            <TR><TD><B><FONT POINT-SIZE="16">5. Validate File (LLM Gate)</FONT></B></TD></TR>
+            <TR><TD><FONT POINT-SIZE="10" COLOR="#999999">Claude reviews the file analysis</FONT></TD></TR>
+            <HR/>
+            <TR><TD ALIGN="LEFT"><FONT POINT-SIZE="10" COLOR="#888888">Sends analyze_file results to Claude<BR ALIGN="LEFT"/>Claude checks for issues and red flags<BR ALIGN="LEFT"/>Returns: proceed (true/false), issues, recommendations<BR ALIGN="LEFT"/>Blocks pipeline if proceed = false</FONT></TD></TR>
+        </TABLE>
+    >''',
+    fillcolor="#ffe0cc",
+    color="#e67e22",
+)
+
+# --- Step 6: Load data ---
 dot.node(
     "LOAD",
     label='''<
         <TABLE BORDER="0" CELLSPACING="0" CELLPADDING="6">
-            <TR><TD><B><FONT POINT-SIZE="16">4. Agent: load_data()</FONT></B></TD></TR>
-            <TR><TD><FONT POINT-SIZE="10" COLOR="#999999">First agent in the pipeline</FONT></TD></TR>
+            <TR><TD><B><FONT POINT-SIZE="16">6. Load Data</FONT></B></TD></TR>
+            <TR><TD><FONT POINT-SIZE="10" COLOR="#999999">Read file into DataFrame</FONT></TD></TR>
             <HR/>
-            <TR><TD ALIGN="LEFT"><FONT POINT-SIZE="10" COLOR="#888888">Reads state["filepath"] → "data.csv"<BR ALIGN="LEFT"/>Runs pd.read_csv("data.csv")<BR ALIGN="LEFT"/>Stores DataFrame in state["data"]<BR ALIGN="LEFT"/>Prints: "Loaded 1000 rows, 12 columns"<BR ALIGN="LEFT"/>Returns state to orchestrator</FONT></TD></TR>
+            <TR><TD ALIGN="LEFT"><FONT POINT-SIZE="10" COLOR="#888888">pd.read_csv → state["data"]<BR ALIGN="LEFT"/>Records row_count, column_count, memory_mb</FONT></TD></TR>
         </TABLE>
     >''',
     fillcolor="#d4edda",
     color="#28a745",
 )
 
-# --- Step 5: summarize ---
+# --- Step 7: Summarize ---
 dot.node(
     "SUMMARIZE",
     label='''<
         <TABLE BORDER="0" CELLSPACING="0" CELLPADDING="6">
-            <TR><TD><B><FONT POINT-SIZE="16">5. Agent: summarize()</FONT></B></TD></TR>
-            <TR><TD><FONT POINT-SIZE="10" COLOR="#999999">Second agent in the pipeline</FONT></TD></TR>
+            <TR><TD><B><FONT POINT-SIZE="16">7. Summarize</FONT></B></TD></TR>
+            <TR><TD><FONT POINT-SIZE="10" COLOR="#999999">Compute dataset statistics</FONT></TD></TR>
             <HR/>
-            <TR><TD ALIGN="LEFT"><FONT POINT-SIZE="10" COLOR="#888888">Reads DataFrame from state["data"]<BR ALIGN="LEFT"/>Computes shape, dtypes, missing counts<BR ALIGN="LEFT"/>Calculates missing value percentages<BR ALIGN="LEFT"/>Stores results in state["summary"]<BR ALIGN="LEFT"/>Returns state to orchestrator</FONT></TD></TR>
+            <TR><TD ALIGN="LEFT"><FONT POINT-SIZE="10" COLOR="#888888">dtypes, missing values, missing %<BR ALIGN="LEFT"/>Numeric stats (mean, std, min, max)<BR ALIGN="LEFT"/>Writes to state["nodes"]["summarize"]</FONT></TD></TR>
         </TABLE>
     >''',
     fillcolor="#d4edda",
     color="#28a745",
 )
 
-# --- Step 6: Done ---
+# --- Step 8: Decision point ---
 dot.node(
-    "DONE",
+    "DECIDE",
     label='''<
         <TABLE BORDER="0" CELLSPACING="0" CELLPADDING="6">
-            <TR><TD><B><FONT POINT-SIZE="16">6. Pipeline Complete</FONT></B></TD></TR>
-            <TR><TD><FONT POINT-SIZE="10" COLOR="#999999">All agents have run — state is fully populated</FONT></TD></TR>
+            <TR><TD><B><FONT POINT-SIZE="16">8. Decision Point</FONT></B></TD></TR>
+            <TR><TD><FONT POINT-SIZE="10" COLOR="#999999">LLM decides if optional nodes should run</FONT></TD></TR>
             <HR/>
-            <TR><TD ALIGN="LEFT"><FONT POINT-SIZE="10" COLOR="#888888">state["data"] → DataFrame with raw data<BR ALIGN="LEFT"/>state["summary"] → dict with shape, dtypes, missing<BR ALIGN="LEFT"/>state["history"] → ["load_data", "summarize"]<BR ALIGN="LEFT"/>Final state returned to main.py</FONT></TD></TR>
+            <TR><TD ALIGN="LEFT"><FONT POINT-SIZE="10" COLOR="#888888">Claude reads current state<BR ALIGN="LEFT"/>Picks from available optional nodes<BR ALIGN="LEFT"/>Or continues to next required step</FONT></TD></TR>
         </TABLE>
     >''',
     fillcolor="#fff3cd",
     color="#d4a017",
 )
 
-# --- Edges: runtime flow ---
-dot.edge("CMD", "STATE")
-dot.edge("STATE", "ORCH")
-dot.edge("ORCH", "LOAD")
+# --- Edges ---
+dot.edge("CMD", "INIT")
+dot.edge("INIT", "ENV")
+dot.edge("ENV", "ANALYZE")
+dot.edge("ANALYZE", "VALIDATE")
+dot.edge("VALIDATE", "LOAD")
 dot.edge("LOAD", "SUMMARIZE")
-dot.edge("SUMMARIZE", "DONE")
+dot.edge("SUMMARIZE", "DECIDE")
 
 dot.render("flow", directory=".", cleanup=True)
 print("Generated docs/flow.png")

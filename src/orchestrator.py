@@ -2,15 +2,33 @@ import json
 
 from src.state import save_state
 from src.llm.client import ask
-from src.nodes.analyze_file import analyze_file
-from src.nodes.validate_file import validate_file
-from src.nodes.load_data import load_data
-from src.nodes.summarize import summarize
+from src.nodes.intake.analyze_file import analyze_file
+from src.nodes.intake.load_data import load_data
+from src.nodes.profile.summarize import summarize
+from src.nodes.profile.memory_analysis import memory_analysis
+from src.nodes.profile.types import types
+from src.nodes.profile.classify import classify
+from src.nodes.profile.optimize_dtypes import optimize_dtypes
+from src.nodes.profile.structure import structure
+from src.nodes.profile.anomalies import anomalies
+from src.nodes.profile.synthesis import synthesis
+from src.nodes.profile.finalize_report import finalize_report
 
 
 # Required steps that always run, with decision points marked by None
 pipelines = {
-    "eda": [analyze_file, validate_file, load_data, summarize, None],
+    "eda": [analyze_file,
+            load_data,
+            summarize,
+            memory_analysis,
+            types,
+            classify,
+            optimize_dtypes,
+            structure,
+            anomalies,
+            synthesis,
+            finalize_report,
+            None],
 }
 
 # Optional nodes the LLM can insert at decision points

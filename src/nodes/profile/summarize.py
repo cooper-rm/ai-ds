@@ -1,3 +1,6 @@
+from src.report import narrate, add_section
+
+
 def summarize(state: dict) -> dict:
     df = state["data"]
 
@@ -10,4 +13,13 @@ def summarize(state: dict) -> dict:
 
     print(f"   Shape: {df.shape}")
     print(f"   Missing values: {df.isnull().sum().sum()}")
+
+    narrative = narrate("Dataset Summary", {
+        "shape": list(df.shape),
+        "missing_total": int(df.isnull().sum().sum()),
+        "missing_columns": {k: v for k, v in state["nodes"]["summarize"]["missing_pct"].items() if v > 0},
+        "dtypes": state["nodes"]["summarize"]["dtypes"],
+    })
+    add_section(state, "Dataset Summary", narrative)
+
     return state

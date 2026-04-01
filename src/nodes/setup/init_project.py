@@ -12,6 +12,9 @@ def init_project(state: dict) -> dict:
 
     print(f"   Creating project: {state['name']}")
     os.makedirs(project_dir, exist_ok=True)
+    os.makedirs(os.path.join(project_dir, "images"), exist_ok=True)
+    os.makedirs(os.path.join(project_dir, "data"), exist_ok=True)
+    os.makedirs(os.path.join(project_dir, "report"), exist_ok=True)
 
     state["nodes"]["init_project"] = {
         "status": "created",

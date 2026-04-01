@@ -1,1 +1,5 @@
 pandas
+matplotlib
+seaborn
+fpdf2
+pylatex

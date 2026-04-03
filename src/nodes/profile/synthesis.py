@@ -1,6 +1,7 @@
 import json
 
 from src.llm.client import ask
+from src.terminal import print_info, print_detail, llm_spinner, console
 
 
 def synthesis(state: dict) -> dict:
@@ -31,6 +32,33 @@ def synthesis(state: dict) -> dict:
             "extreme_skew": nodes.get("anomalies", {}).get("extreme_skew", []),
             "high_cardinality": nodes.get("anomalies", {}).get("high_cardinality", []),
         },
+        "distributions": {
+            col: {"skewness": v["skewness"], "shape": v["shape"]}
+            for col, v in nodes.get("distributions", {}).get("per_column", {}).items()
+            if "skewness" in v
+        },
+        "outliers": {
+            col: {
+                "n_outliers": r["n_outliers"],
+                "outlier_pct": r["outlier_pct"],
+                "iqr_bounds": [r["iqr_lower"], r["iqr_upper"]],
+            }
+            for col, r in nodes.get("outliers", {}).get("results", {}).items()
+            if r["n_outliers"] > 0
+        },
+        "missing_analysis": {
+            col: {
+                "missing_pct":      r["missing_pct"],
+                "missingness_type": r["missingness_type"],
+                "winner":           r["winner"],
+                "winner_distortion":r["winner_score"]["total"],
+                "group_by":         r.get("group_by"),
+                "regressors":       r.get("regressors", []),
+                "methods_tested":   r.get("methods_tested", []),
+            }
+            for col, r in nodes.get("imputation", {}).get("results", {}).items()
+        },
+        "columns_to_drop_missing": nodes.get("missing", {}).get("columns_to_drop", []),
     }
 
     prompt = f"""You are producing a machine-actionable preprocessing plan from profiling results.
@@ -45,16 +73,17 @@ Rules:
 - Each action must map to a specific operation with exact parameters
 - Only recommend what the data supports — do not guess domain knowledge
 - Be concise — no prose, just structured decisions
+- For imputation: use the missing_analysis winner field directly — it is already the lowest-distortion method identified by testing. Use its group_by/regressors as parameters. Any column in columns_to_drop_missing goes in drop_columns with reason "too_much_missing".
 
 Respond with EXACTLY this JSON format, nothing else:
 {{
   "quality_score": 1-10,
   "quality_flags": ["list of specific issues found"],
   "drop_columns": [
-    {{"column": "name", "reason": "identifier|zero_variance|too_sparse"}}
+    {{"column": "name", "reason": "identifier|zero_variance|too_sparse|too_much_missing"}}
   ],
   "impute": [
-    {{"column": "name", "method": "median|mean|mode|grouped_median|drop_rows", "group_by": ["col1"] or null}}
+    {{"column": "name", "method": "regression|grouped_median|median|mean|mode|drop_rows", "group_by": ["col1"] or null, "regressors": ["col1"] or null}}
   ],
   "encode": [
     {{"column": "name", "method": "label|onehot|ordinal", "categories": ["ordered list"] or null}}
@@ -70,7 +99,8 @@ Respond with EXACTLY this JSON format, nothing else:
   ]
 }}"""
 
-    response = ask(prompt, system="You are a data preprocessing planner. Respond only in JSON. Be concise and precise.")
+    with llm_spinner("Building preprocessing plan"):
+        response = ask(prompt, system="You are a data preprocessing planner. Respond only in JSON. Be concise and precise.")
 
     try:
         result = json.loads(response)
@@ -84,51 +114,34 @@ Respond with EXACTLY this JSON format, nothing else:
 
     state["nodes"]["synthesis"] = result
 
-    # Print summary
-    print(f"\n   === PREPROCESSING PLAN ===\n")
-    print(f"   Quality: {result.get('quality_score', '?')}/10")
+    from rich.table import Table
+    from rich import box
 
-    flags = result.get("quality_flags", [])
-    if flags:
-        for flag in flags:
-            print(f"   ! {flag}")
+    score = result.get("quality_score", "?")
+    score_color = "green" if isinstance(score, int) and score >= 7 else "yellow" if isinstance(score, int) and score >= 4 else "red"
+    console.print(f"     [bold {score_color}]Quality {score}/10[/bold {score_color}]")
 
-    drops = result.get("drop_columns", [])
-    if drops:
-        print(f"\n   Drop: {len(drops)} columns")
-        for d in drops:
-            print(f"     {d['column']} ({d['reason']})")
+    for flag in result.get("quality_flags", []):
+        print_info(f"[yellow]⚠[/yellow]  {flag}")
 
-    imputes = result.get("impute", [])
-    if imputes:
-        print(f"\n   Impute: {len(imputes)} columns")
-        for imp in imputes:
-            group = f" by {imp['group_by']}" if imp.get("group_by") else ""
-            print(f"     {imp['column']}: {imp['method']}{group}")
+    plan_table = Table(box=box.SIMPLE, show_header=True, header_style="bold dim", padding=(0, 1))
+    plan_table.add_column("Action")
+    plan_table.add_column("Column / Feature")
+    plan_table.add_column("Method / Detail")
 
-    encodes = result.get("encode", [])
-    if encodes:
-        print(f"\n   Encode: {len(encodes)} columns")
-        for enc in encodes:
-            print(f"     {enc['column']}: {enc['method']}")
+    for d in result.get("drop_columns", []):
+        plan_table.add_row("[red]drop[/red]", d["column"], f"[dim]{d['reason']}[/dim]")
+    for imp in result.get("impute", []):
+        group = f" by {imp['group_by']}" if imp.get("group_by") else ""
+        plan_table.add_row("[cyan]impute[/cyan]", imp["column"], f"{imp['method']}{group}")
+    for enc in result.get("encode", []):
+        plan_table.add_row("[magenta]encode[/magenta]", enc["column"], enc["method"])
+    for t in result.get("transform", []):
+        plan_table.add_row("[blue]transform[/blue]", t["column"], t["method"])
+    for e in result.get("engineer", []):
+        plan_table.add_row("[green]engineer[/green]", e["name"], f"{e['operation']}({', '.join(e['source_columns'])})")
 
-    transforms = result.get("transform", [])
-    if transforms:
-        print(f"\n   Transform: {len(transforms)} columns")
-        for t in transforms:
-            print(f"     {t['column']}: {t['method']}")
-
-    engineers = result.get("engineer", [])
-    if engineers:
-        print(f"\n   Engineer: {len(engineers)} features")
-        for e in engineers:
-            print(f"     {e['name']}: {e['operation']}({e['source_columns']})")
-
-    order = result.get("preprocessing_order", [])
-    if order:
-        print(f"\n   Execution order:")
-        for step in order:
-            print(f"     {step['step']}. {step['action']} → {step['targets']}")
+    console.print(plan_table)
 
     from src.report import narrate, add_section
     narrative = narrate("Preprocessing Plan", result, context="This is the LLM's recommended plan based on all profiling results.")

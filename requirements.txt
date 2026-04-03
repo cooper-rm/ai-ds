@@ -3,3 +3,7 @@ matplotlib
 seaborn
 fpdf2
 pylatex
+rich
+pyarrow
+scikit-learn
+torch

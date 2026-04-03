@@ -17,6 +17,10 @@ def main():
     init_project(state)
     ensure_env(state, __file__, sys.argv[1:])
 
+    # At this point we're running inside the project venv — rich is available
+    from src.terminal import print_banner
+    print_banner(args.name, args.filepath, args.goal)
+
     from src.orchestrator import orchestrator
     state = orchestrator(state)
 

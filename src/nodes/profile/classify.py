@@ -1,6 +1,7 @@
 import json
 
 from src.llm.client import ask
+from src.terminal import print_info, print_detail, llm_spinner
 
 
 def classify(state: dict) -> dict:
@@ -57,7 +58,8 @@ Respond with EXACTLY this JSON format, nothing else:
   }}
 }}"""
 
-    response = ask(prompt, system="You are a data science assistant. Respond only in JSON.")
+    with llm_spinner("Classifying columns"):
+        response = ask(prompt, system="You are a data science assistant. Respond only in JSON.")
 
     try:
         result = json.loads(response)
@@ -82,11 +84,9 @@ Respond with EXACTLY this JSON format, nothing else:
         "type_counts": type_counts,
     }
 
-    # Print summary
-    print(f"   Column classifications:")
     for col, info in classifications.items():
-        print(f"     {col}: {info['type']} — {info['reason']}")
-    print(f"   Summary: {type_counts}")
+        print_info(f"{col}: {info['type']}  —  {info['reason']}")
+    print_detail("summary", "  ".join(f"{k} ×{v}" for k, v in type_counts.items()))
 
     from src.report import narrate, add_section
     narrative = narrate("Column Classification", {

@@ -2,6 +2,10 @@ import json
 
 from src.state import save_state
 from src.llm.client import ask
+from src.terminal import (
+    print_step, print_skip, print_done, print_fail,
+    print_phase, print_summary, llm_spinner, NODE_PHASES,
+)
 from src.nodes.intake.analyze_file import analyze_file
 from src.nodes.intake.load_data import load_data
 from src.nodes.profile.summarize import summarize
@@ -11,8 +15,17 @@ from src.nodes.profile.classify import classify
 from src.nodes.profile.optimize_dtypes import optimize_dtypes
 from src.nodes.profile.structure import structure
 from src.nodes.profile.anomalies import anomalies
+from src.nodes.profile.missing import missing
+from src.nodes.imputation.imputation import imputation
+from src.nodes.profile.distributions import distributions
+from src.nodes.profile.outliers import outliers
 from src.nodes.profile.synthesis import synthesis
 from src.nodes.profile.finalize_report import finalize_report
+from src.nodes.preprocessing.drop_columns import drop_columns
+from src.nodes.preprocessing.impute import impute
+from src.nodes.preprocessing.engineer import engineer
+from src.nodes.preprocessing.encode import encode
+from src.nodes.preprocessing.transform import transform
 
 
 # Required steps that always run, with decision points marked by None
@@ -26,7 +39,16 @@ pipelines = {
             optimize_dtypes,
             structure,
             anomalies,
+            missing,
+            imputation,
+            distributions,
+            outliers,
             synthesis,
+            drop_columns,
+            impute,
+            engineer,
+            encode,
+            transform,
             finalize_report,
             None],
 }
@@ -66,7 +88,8 @@ Respond with EXACTLY this JSON format, nothing else:
   "reasoning": "brief explanation"
 }}"""
 
-    response = ask(prompt, system="You are a data science pipeline orchestrator. Respond only in JSON.")
+    with llm_spinner("Deciding optional steps"):
+        response = ask(prompt, system="You are a data science pipeline orchestrator. Respond only in JSON.")
 
     try:
         result = json.loads(response)
@@ -84,19 +107,27 @@ Respond with EXACTLY this JSON format, nothing else:
 def run_step(state: dict, step) -> dict:
     """Run a single step with error recovery."""
     if step.__name__ in state["history"]:
-        print(f">> Skipping (already completed): {step.__name__}")
+        print_skip(step.__name__)
         return state
 
-    print(f">> Running: {step.__name__}")
+    # Print phase divider when entering a new phase
+    current_phase = NODE_PHASES.get(step.__name__, "unknown")
+    prev_phase = NODE_PHASES.get(state["history"][-1], "unknown") if state["history"] else None
+    if current_phase != prev_phase:
+        print_phase(current_phase)
+
+    print_step(step.__name__)
     try:
         state = step(state)
         state["history"].append(step.__name__)
         save_state(state)
+        node_data = state["nodes"].get(step.__name__, {})
+        detail = node_data.get("status", "")
+        print_done(step.__name__, detail)
     except Exception as e:
         state["nodes"][step.__name__] = {"status": "failed", "error": str(e)}
         save_state(state)
-        print(f"   FAILED: {e}")
-        print(f"   Fix the issue and re-run to resume from this step.")
+        print_fail(step.__name__, str(e))
         raise
 
     return state
@@ -115,11 +146,11 @@ def orchestrator(state: dict) -> dict:
 
     for step in pipeline:
         if step is None:
-            # Decision point — ask LLM for optional steps
             extras = decide_next(state)
             for extra in extras:
                 state = run_step(state, extra)
         else:
             state = run_step(state, step)
 
+    print_summary(state)
     return state

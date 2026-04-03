@@ -1,5 +1,8 @@
 import numpy as np
 
+from src.utils import snapshot
+from src.terminal import print_info, print_detail
+
 
 def optimize_dtypes(state: dict) -> dict:
     """Optimize numeric dtypes for memory. Leaves strings untouched for preprocessing phase."""
@@ -52,10 +55,8 @@ def optimize_dtypes(state: dict) -> dict:
         "changes": changes,
     }
 
-    print(f"   Before: {before_mb} MB → After: {after_mb} MB")
-    print(f"   Saved: {savings_mb} MB ({savings_pct}%)")
-    print(f"   Changes: {len(changes)} columns")
+    print_detail("memory", f"{before_mb} MB → {after_mb} MB  (saved {savings_mb} MB, {savings_pct}%)")
     for c in changes:
-        print(f"     {c['column']}: {c['from']} → {c['to']} ({c['classification']})")
-
+        print_info(f"{c['column']}: {c['from']} → {c['to']}")
+    snapshot(state, "optimize_dtypes")
     return state

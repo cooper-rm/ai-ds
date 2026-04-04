@@ -189,6 +189,42 @@ Respond with EXACTLY this JSON, nothing else:
     }
 
 
+def _compute_psi(train_series, test_series, n_bins=10) -> float:
+    """Compute Population Stability Index between two numeric series."""
+    combined = pd.concat([train_series.dropna(), test_series.dropna()])
+    if len(combined) < n_bins * 2:
+        return 0.0
+
+    bins = np.linspace(combined.min(), combined.max(), n_bins + 1)
+    train_hist, _ = np.histogram(train_series.dropna(), bins=bins)
+    test_hist, _ = np.histogram(test_series.dropna(), bins=bins)
+
+    # Convert to proportions with smoothing
+    train_pct = (train_hist + 1) / (train_hist.sum() + n_bins)
+    test_pct = (test_hist + 1) / (test_hist.sum() + n_bins)
+
+    psi = float(np.sum((test_pct - train_pct) * np.log(test_pct / train_pct)))
+    return psi
+
+
+def _check_split_stability(df_train: pd.DataFrame, df_test: pd.DataFrame) -> tuple[float, dict]:
+    """
+    Check feature stability between train and test splits.
+    Returns (max_psi, {col: psi}) for all numeric columns.
+    """
+    numeric_cols = df_train.select_dtypes(include=[np.number]).columns.tolist()
+    psi_scores = {}
+
+    for col in numeric_cols:
+        if df_train[col].nunique() <= 1:
+            continue
+        psi = _compute_psi(df_train[col], df_test[col])
+        psi_scores[col] = round(psi, 6)
+
+    max_psi = max(psi_scores.values()) if psi_scores else 0.0
+    return max_psi, psi_scores
+
+
 def _print_split_distribution(label: str, df_split: pd.DataFrame, target_col: str | None):
     """Print row count and target distribution for a split."""
     count = len(df_split)
@@ -302,6 +338,9 @@ def split_data(state: dict) -> dict:
     snapshot(state, "split_data_full")
 
     # ── 6. Perform the split ─────────────────────────────────────────────────
+    best_seed = None
+    best_max_psi = None
+
     if temporal_split:
         # Chronological split — NO shuffle, preserve row order
         # Sort by temporal column first
@@ -342,21 +381,64 @@ def split_data(state: dict) -> dict:
         else:
             print_info("random split")
 
-        # Two-stage split
+        # ── Stability-checked splitting ──────────────────────────────────────
+        # Try multiple seeds, pick the one where features are most stable
+        # across train/val/test (lowest max PSI).
+        MAX_ATTEMPTS = 10
+        PSI_THRESHOLD = 0.2  # significant drift threshold
+
+        best_split = None
+        best_max_psi = float("inf")
+        best_seed = 42
+
         test_size = test_frac
         remainder_frac = train_frac + val_frac
         val_relative = val_frac / remainder_frac
 
-        stratify_col = df[target_col] if stratified else None
-        df_remainder, df_test = train_test_split(
-            df, test_size=test_size, random_state=42, stratify=stratify_col,
-        )
+        for attempt in range(MAX_ATTEMPTS):
+            seed = 42 + attempt
+            stratify_col = df[target_col] if stratified else None
 
-        stratify_remainder = df_remainder[target_col] if stratified else None
-        df_train, df_val = train_test_split(
-            df_remainder, test_size=val_relative, random_state=42,
-            stratify=stratify_remainder,
-        )
+            df_remainder_try, df_test_try = train_test_split(
+                df, test_size=test_size, random_state=seed, stratify=stratify_col,
+            )
+            stratify_rem = df_remainder_try[target_col] if stratified else None
+            df_train_try, df_val_try = train_test_split(
+                df_remainder_try, test_size=val_relative, random_state=seed,
+                stratify=stratify_rem,
+            )
+
+            # Check stability: compute PSI between train and test for each numeric col
+            max_psi, psi_details = _check_split_stability(
+                df_train_try, df_test_try
+            )
+
+            if attempt == 0:
+                print_info(f"  seed={seed}: max PSI={max_psi:.4f}")
+
+            if max_psi < PSI_THRESHOLD:
+                # Stable enough — use this split
+                best_split = (df_train_try, df_val_try, df_test_try)
+                best_max_psi = max_psi
+                best_seed = seed
+                if attempt > 0:
+                    print_info(f"  seed={seed}: max PSI={max_psi:.4f} — stable")
+                break
+
+            if max_psi < best_max_psi:
+                best_split = (df_train_try, df_val_try, df_test_try)
+                best_max_psi = max_psi
+                best_seed = seed
+
+            if attempt > 0:
+                print_info(f"  seed={seed}: max PSI={max_psi:.4f}")
+
+        df_train, df_val, df_test = best_split
+
+        if best_seed != 42:
+            print_info(f"selected seed={best_seed} (max PSI={best_max_psi:.4f}, tried {min(attempt + 1, MAX_ATTEMPTS)} seeds)")
+        else:
+            print_info(f"seed=42 (max PSI={best_max_psi:.4f})")
 
     # ── 6. Store results ─────────────────────────────────────────────────────
     state["splits"] = {
@@ -391,6 +473,8 @@ def split_data(state: dict) -> dict:
         },
         "stratified": stratified,
         "target_column": target_col,
+        "random_seed": best_seed if not temporal_split else None,
+        "max_psi": round(best_max_psi, 6) if not temporal_split else None,
         "recommendation": recommendation,
     }
 

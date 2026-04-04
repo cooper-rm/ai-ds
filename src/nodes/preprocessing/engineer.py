@@ -1,3 +1,4 @@
+import numpy as np
 import pandas as pd
 
 from src.report import narrate, add_section
@@ -65,6 +66,65 @@ def engineer(state: dict) -> dict:
             pattern = params.get("pattern", r"^([A-Za-z]+)")
             df[name] = df[source].astype(str).str.extract(pattern, expand=False)
             results.append({"name": name, "operation": "extract", "source": source, "pattern": pattern})
+
+        elif operation == "polynomial":
+            degree = min(params.get("degree", 2), 2)
+            created = []
+            for i, col_a in enumerate(valid_sources):
+                df[f"{col_a}_sq"] = df[col_a] ** 2
+                created.append(f"{col_a}_sq")
+                if degree == 2:
+                    for col_b in valid_sources[i + 1:]:
+                        interaction = f"{col_a}_x_{col_b}"
+                        df[interaction] = df[col_a] * df[col_b]
+                        created.append(interaction)
+            results.append({"name": name, "operation": "polynomial", "sources": valid_sources, "created": created})
+
+        elif operation == "datetime":
+            source = valid_sources[0]
+            components = params.get("components", ["year", "month", "day", "dayofweek", "hour"])
+            dt_col = pd.to_datetime(df[source], errors="coerce")
+            created = []
+            for comp in components:
+                col_name = f"{source}_{comp}"
+                if comp == "dayofweek":
+                    df[col_name] = dt_col.dt.dayofweek
+                else:
+                    df[col_name] = getattr(dt_col.dt, comp, None)
+                created.append(col_name)
+            results.append({"name": name, "operation": "datetime", "source": source, "created": created})
+
+        elif operation == "log":
+            source = valid_sources[0]
+            df[name] = np.log1p(df[source])
+            results.append({"name": name, "operation": "log", "source": source})
+
+        elif operation == "multiply":
+            if len(valid_sources) == 2:
+                df[name] = df[valid_sources[0]] * df[valid_sources[1]]
+                results.append({"name": name, "operation": "multiply", "sources": valid_sources})
+
+        elif operation == "groupby_agg":
+            group_col = params.get("group_col")
+            agg_col = params.get("agg_col")
+            agg_func = params.get("agg_func", "mean")
+            if group_col in df.columns and agg_col in df.columns:
+                df[name] = df.groupby(group_col)[agg_col].transform(agg_func)
+                results.append({"name": name, "operation": "groupby_agg", "group_col": group_col, "agg_col": agg_col, "agg_func": agg_func})
+            else:
+                results.append({"name": name, "status": "missing_sources", "needed": [group_col, agg_col]})
+                print_info(f"{name}: groupby_agg columns not found, skipping")
+                continue
+
+        elif operation == "count":
+            source = valid_sources[0]
+            df[name] = df[source].map(df[source].value_counts())
+            results.append({"name": name, "operation": "count", "source": source})
+
+        elif operation == "reciprocal":
+            source = valid_sources[0]
+            df[name] = 1 / (df[source] + 1e-8)
+            results.append({"name": name, "operation": "reciprocal", "source": source})
 
         else:
             results.append({"name": name, "status": "unknown_operation", "operation": operation})

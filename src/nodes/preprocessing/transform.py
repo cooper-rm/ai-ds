@@ -63,6 +63,66 @@ def transform(state: dict) -> dict:
                 print_info(f"{col}: constant value, skipping minmax_scale")
                 continue
 
+        elif method == "boxcox":
+            from scipy.stats import boxcox as _boxcox
+            series = df[col].dropna()
+            min_val = series.min()
+            if min_val <= 0:
+                shift = abs(min_val) + 1
+                series = series + shift
+                df[col] = df[col] + shift
+            else:
+                shift = 0
+            transformed, fitted_lambda = _boxcox(series)
+            df[col] = np.nan
+            df.loc[series.index, col] = transformed
+            results.append({"column": col, "method": "boxcox", "fitted_lambda": round(float(fitted_lambda), 4), "shift": round(float(shift), 4)})
+
+        elif method == "yeojohnson":
+            from scipy.stats import yeojohnson as _yeojohnson
+            series = df[col].dropna()
+            transformed, fitted_lambda = _yeojohnson(series)
+            df[col] = np.nan
+            df.loc[series.index, col] = transformed
+            results.append({"column": col, "method": "yeojohnson", "fitted_lambda": round(float(fitted_lambda), 4)})
+
+        elif method == "robust_scale":
+            median = df[col].median()
+            q1 = df[col].quantile(0.25)
+            q3 = df[col].quantile(0.75)
+            iqr = q3 - q1
+            if iqr > 0:
+                df[col] = (df[col] - median) / iqr
+                results.append({"column": col, "method": "robust_scale", "median": round(float(median), 4), "iqr": round(float(iqr), 4)})
+            else:
+                results.append({"column": col, "status": "zero_iqr", "method": "robust_scale"})
+                print_info(f"{col}: zero IQR, skipping robust_scale")
+                continue
+
+        elif method == "power":
+            from sklearn.preprocessing import PowerTransformer as _PowerTransformer
+            pt = _PowerTransformer(method="yeo-johnson")
+            series = df[col].dropna()
+            transformed = pt.fit_transform(series.values.reshape(-1, 1)).ravel()
+            df[col] = np.nan
+            df.loc[series.index, col] = transformed
+            fitted_lambda = pt.lambdas_[0]
+            results.append({"column": col, "method": "power", "fitted_lambda": round(float(fitted_lambda), 4)})
+
+        elif method == "quantile":
+            from sklearn.preprocessing import QuantileTransformer as _QuantileTransformer
+            series = df[col].dropna()
+            n_quantiles = min(1000, len(series))
+            qt = _QuantileTransformer(output_distribution="normal", n_quantiles=n_quantiles)
+            transformed = qt.fit_transform(series.values.reshape(-1, 1)).ravel()
+            df[col] = np.nan
+            df.loc[series.index, col] = transformed
+            results.append({"column": col, "method": "quantile", "n_quantiles": n_quantiles})
+
+        elif method == "rank":
+            df[col] = df[col].rank(method="average") / len(df)
+            results.append({"column": col, "method": "rank"})
+
         else:
             results.append({"column": col, "status": "unknown_method", "method": method})
             print_info(f"{col}: unknown method '{method}', skipping")

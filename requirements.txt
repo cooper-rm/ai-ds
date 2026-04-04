@@ -6,4 +6,5 @@ pylatex
 rich
 pyarrow
 scikit-learn
+statsmodels
 torch

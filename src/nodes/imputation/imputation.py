@@ -113,9 +113,13 @@ def imputation(state: dict) -> dict:
                     continue
                 score = score_distortion(df, col, imputed, ev)
                 method_results[method] = {"imputed": imputed, "score": score}
+                ks = score.get('ks_statistic', 0)
+                shape = score.get('shape_penalty', 0)
                 print_info(
                     f"  {method}: Δslope={score['delta_slope']:.4f}"
                     f"  ΔR²={score['delta_r2']:.4f}"
+                    f"  KS={ks:.4f}"
+                    f"  shape={shape:.4f}"
                     f"  total={score['total']:.4f}"
                 )
             except Exception as e:

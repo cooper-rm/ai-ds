@@ -23,7 +23,7 @@ from scipy import stats
 
 from src.report import narrate, add_section
 from src.utils import save_and_show
-from src.terminal import print_info, print_detail
+from src.terminal import print_info, print_detail, print_warning
 
 # Types that get numeric treatment
 NUMERIC_TYPES  = {"continuous", "discrete"}
@@ -92,16 +92,38 @@ def distributions(state: dict) -> dict:
         print_info(f"{col}: skew={skewness:+.2f}  kurtosis={kurtosis:.2f}  [{shape_tag}]")
 
     # ── Categorical columns ───────────────────────────────────────────────────
+    rare_categories = {}
+
     for col, col_type in categorical_cols:
         img = _plot_categorical(df, col, col_type, state)
+        n_unique = int(df[col].nunique())
+
+        # Rare category detection: freq < 1% or count < 10
+        counts = df[col].value_counts()
+        total  = len(df[col].dropna())
+        rare   = []
+        if total > 0:
+            for val, cnt in counts.items():
+                freq = cnt / total
+                if freq < 0.01 or cnt < 10:
+                    rare.append({"value": str(val), "count": int(cnt),
+                                 "freq": round(freq, 4)})
+        if rare:
+            rare_categories[col] = rare
+            print_warning(
+                f"{col}: {len(rare)} rare categories "
+                f"(<1% or n<10) out of {n_unique}"
+            )
+
         per_col[col] = {
             "type": col_type,
-            "n_unique": int(df[col].nunique()),
+            "n_unique": n_unique,
+            "rare_count": len(rare),
             "plot": str(img) if img else None,
         }
         if img:
             images.append(img)
-        print_info(f"{col}: {df[col].nunique()} categories  [{col_type}]")
+        print_info(f"{col}: {n_unique} categories  [{col_type}]")
 
     # ── Numeric grid summary ──────────────────────────────────────────────────
     if numeric_cols:
@@ -115,6 +137,7 @@ def distributions(state: dict) -> dict:
     state["nodes"]["distributions"] = {
         "status": "analyzed",
         "per_column": per_col,
+        "rare_categories": rare_categories,
         "skipped": skipped,
         "images": [str(p) for p in images],
     }
@@ -126,10 +149,11 @@ def distributions(state: dict) -> dict:
             if "skewness" in v
         },
         "categorical_summary": {
-            col: {"n_unique": v["n_unique"]}
+            col: {"n_unique": v["n_unique"], "rare_count": v.get("rare_count", 0)}
             for col, v in per_col.items()
             if "n_unique" in v
         },
+        "rare_category_columns": list(rare_categories.keys()),
     })
     add_section(state, "Distributions", narrative, images)
 

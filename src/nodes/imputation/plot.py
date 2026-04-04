@@ -109,8 +109,8 @@ def _plot_numeric(df, col, method_results, best_method, ev, state):
     bars = axes[3].bar(range(len(names)), totals, color=bar_colors, edgecolor="white")
     axes[3].set_xticks(range(len(names)))
     axes[3].set_xticklabels(short, rotation=28, ha="right", fontsize=7)
-    axes[3].set_title("Line Distortion by Method\n(lower = better)", fontsize=10, fontweight="bold")
-    axes[3].set_ylabel("Δslope + ΔR²", fontsize=8)
+    axes[3].set_title("Total Distortion by Method\n(lower = better)", fontsize=10, fontweight="bold")
+    axes[3].set_ylabel("Distortion Score", fontsize=8)
     axes[3].bar_label(bars, fmt="%.3f", fontsize=7)
 
     plt.suptitle(f"Imputation Analysis: {col}", fontsize=13, fontweight="bold")

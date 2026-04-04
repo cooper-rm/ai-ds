@@ -59,6 +59,31 @@ def synthesis(state: dict) -> dict:
             for col, r in nodes.get("imputation", {}).get("results", {}).items()
         },
         "columns_to_drop_missing": nodes.get("missing", {}).get("columns_to_drop", []),
+        "data_quality": {
+            "exact_duplicates": nodes.get("data_quality", {}).get("exact_duplicates", {}).get("count", 0),
+            "identifier_duplicates": nodes.get("data_quality", {}).get("identifier_duplicates", []),
+            "string_issues": nodes.get("data_quality", {}).get("string_issues", []),
+            "constant_columns": nodes.get("data_quality", {}).get("constant_columns", []),
+        },
+        "correlations": {
+            "top_pairs": nodes.get("correlations", {}).get("top_pairs", [])[:5],
+            "strong_pearson": nodes.get("correlations", {}).get("strong_pearson", []),
+            "vif_warnings": [
+                v for v in (nodes.get("correlations", {}).get("vif") or [])
+                if v.get("severity") != "ok"
+            ],
+        },
+        "bivariate": {
+            "significant_anova": [
+                e for e in nodes.get("bivariate", {}).get("results", {}).get("categorical_x_numeric", [])
+                if e.get("significant")
+            ][:10],
+            "significant_associations": [
+                e for e in nodes.get("bivariate", {}).get("results", {}).get("categorical_x_categorical", [])
+                if e.get("significant")
+            ][:10],
+        },
+        "rare_categories": list(nodes.get("distributions", {}).get("rare_categories", {}).keys()),
     }
 
     prompt = f"""You are producing a machine-actionable preprocessing plan from profiling results.
@@ -86,13 +111,13 @@ Respond with EXACTLY this JSON format, nothing else:
     {{"column": "name", "method": "regression|grouped_median|median|mean|mode|drop_rows", "group_by": ["col1"] or null, "regressors": ["col1"] or null}}
   ],
   "encode": [
-    {{"column": "name", "method": "label|onehot|ordinal", "categories": ["ordered list"] or null}}
+    {{"column": "name", "method": "label|onehot|ordinal|target|frequency|binary|woe|hash", "categories": ["ordered list"] or null, "target_col": "optional target column for target/woe encoding"}}
   ],
   "transform": [
-    {{"column": "name", "method": "log1p|sqrt|standard_scale|minmax_scale"}}
+    {{"column": "name", "method": "log1p|sqrt|standard_scale|minmax_scale|boxcox|yeojohnson|robust_scale|power|quantile|rank"}}
   ],
   "engineer": [
-    {{"name": "new_col_name", "operation": "sum|ratio|extract|bin|indicator", "source_columns": ["col1", "col2"], "params": {{}} }}
+    {{"name": "new_col_name", "operation": "sum|ratio|extract|bin|indicator|polynomial|datetime|log|multiply|groupby_agg|count|reciprocal", "source_columns": ["col1", "col2"], "params": {{}} }}
   ],
   "preprocessing_order": [
     {{"step": 1, "action": "drop|impute|encode|transform|engineer", "targets": ["col1", "col2"]}}

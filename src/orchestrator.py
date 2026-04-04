@@ -15,10 +15,13 @@ from src.nodes.profile.classify import classify
 from src.nodes.profile.optimize_dtypes import optimize_dtypes
 from src.nodes.profile.structure import structure
 from src.nodes.profile.anomalies import anomalies
+from src.nodes.profile.data_quality import data_quality
 from src.nodes.profile.missing import missing
 from src.nodes.imputation.imputation import imputation
 from src.nodes.profile.distributions import distributions
 from src.nodes.profile.outliers import outliers
+from src.nodes.profile.correlations import correlations
+from src.nodes.profile.bivariate import bivariate
 from src.nodes.profile.synthesis import synthesis
 from src.nodes.profile.finalize_report import finalize_report
 from src.nodes.preprocessing.drop_columns import drop_columns
@@ -26,6 +29,7 @@ from src.nodes.preprocessing.impute import impute
 from src.nodes.preprocessing.engineer import engineer
 from src.nodes.preprocessing.encode import encode
 from src.nodes.preprocessing.transform import transform
+from src.nodes.preprocessing.feature_selection import feature_selection
 
 
 # Required steps that always run, with decision points marked by None
@@ -39,16 +43,20 @@ pipelines = {
             optimize_dtypes,
             structure,
             anomalies,
+            data_quality,
             missing,
             imputation,
             distributions,
             outliers,
+            correlations,
+            bivariate,
             synthesis,
             drop_columns,
             impute,
             engineer,
             encode,
             transform,
+            feature_selection,
             finalize_report,
             None],
 }
@@ -141,6 +149,13 @@ def orchestrator(state: dict) -> dict:
 
     if "nodes" not in state:
         state["nodes"] = {}
+
+    # Reload data if resuming from a saved state (load_state sets data=None)
+    if state["data"] is None and "load_data" in state.get("history", []):
+        import pandas as pd
+        state["data"] = pd.read_csv(state["filepath"])
+        print_step("reload_data")
+        print_done("reload_data", f"{len(state['data'])} rows")
 
     pipeline = pipelines[goal]
 

@@ -50,6 +50,8 @@ NODE_PHASES = {
     "outliers":       "profile",
     "correlations":   "profile",
     "bivariate":      "profile",
+    "dimensionality": "profile",
+    "leakage":        "profile",
     "synthesis":      "profile",
     "drop_columns":   "preprocessing",
     "impute":         "preprocessing",

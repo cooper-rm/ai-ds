@@ -9,11 +9,15 @@ For each column with missing values:
 Output: state["nodes"]["missing"] with evidence per column.
 Consumed by: nodes/imputation/imputation.py and synthesis.py
 """
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 import numpy as np
 from scipy import stats
 
 from src.report import narrate, add_section
 from src.terminal import print_info, print_detail
+from src.utils import save_and_show
 
 DROP_THRESHOLD     = 0.50
 WARN_THRESHOLD     = 0.30
@@ -71,11 +75,93 @@ def missing(state: dict) -> dict:
     print_detail("recommend drop",   len(to_drop))
     print_detail("recommend impute", len(to_impute))
 
+    # ── Visualizations ──────────────────────────────────────────────────
+    images = []
+
+    # 1. Missing value matrix (binary heatmap)
+    sorted_cols = sorted(
+        missing_cols,
+        key=lambda c: results[c]["missing_pct"],
+    )
+    sample = df[sorted_cols] if len(df) <= 500 else df[sorted_cols].sample(500, random_state=42)
+    matrix = sample.isnull().astype(int).values
+
+    fig, ax = plt.subplots(figsize=(max(8, len(sorted_cols) * 0.6), 6))
+    ax.pcolormesh(matrix, cmap="gray_r", edgecolors="none")
+    ax.set_xticks(np.arange(len(sorted_cols)) + 0.5)
+    ax.set_xticklabels(sorted_cols, rotation=45, ha="right", fontsize=9)
+    ax.set_yticks([])
+    ax.set_ylabel("Rows (sample)" if len(df) > 500 else "Rows")
+    ax.set_title("Missing Value Matrix", fontsize=14, fontweight="bold")
+    plt.tight_layout()
+    path = save_and_show(fig, state, "missing_matrix.png")
+    images.append(path)
+    plt.close()
+
+    # 2. Missing percentage bar chart (coloured by missingness type)
+    cols_with_missing = [c for c in missing_cols if results[c]["missing_pct"] > 0]
+    if cols_with_missing:
+        cols_with_missing.sort(key=lambda c: results[c]["missing_pct"])
+        pcts = [results[c]["missing_pct"] * 100 for c in cols_with_missing]
+        type_color_map = {"MCAR": "#4C72B0", "MAR": "#DD8452", "MNAR_suspected": "#C44E52", "unknown": "#999999"}
+        colors = [type_color_map.get(results[c]["missingness_type"], "#999999") for c in cols_with_missing]
+
+        fig, ax = plt.subplots(figsize=(8, max(4, len(cols_with_missing) * 0.4)))
+        bars = ax.barh(range(len(cols_with_missing)), pcts, color=colors, edgecolor="white")
+        ax.set_yticks(range(len(cols_with_missing)))
+        ax.set_yticklabels(cols_with_missing, fontsize=9)
+        ax.set_xlabel("Missing %")
+        ax.set_title("Missing Percentage by Column", fontsize=14, fontweight="bold")
+
+        for bar, pct in zip(bars, pcts):
+            ax.text(bar.get_width() + 0.5, bar.get_y() + bar.get_height() / 2,
+                    f"{pct:.1f}%", va="center", fontsize=8)
+
+        # Legend for missingness types
+        from matplotlib.patches import Patch
+        present_types = sorted(set(results[c]["missingness_type"] for c in cols_with_missing))
+        legend_handles = [Patch(facecolor=type_color_map.get(t, "#999999"), label=t) for t in present_types]
+        ax.legend(handles=legend_handles, loc="lower right", fontsize=8, title="Type")
+
+        plt.tight_layout()
+        path = save_and_show(fig, state, "missing_pct_bars.png")
+        images.append(path)
+        plt.close()
+
+    # 3. Missing correlation heatmap
+    if len(missing_cols) >= 2:
+        miss_indicators = df[missing_cols].isnull().astype(int)
+        miss_corr = miss_indicators.corr()
+
+        fig, ax = plt.subplots(figsize=(max(6, len(missing_cols) * 0.7),
+                                        max(5, len(missing_cols) * 0.6)))
+        im = ax.imshow(miss_corr.values, cmap="RdBu_r", vmin=-1, vmax=1, aspect="auto")
+        ax.set_xticks(range(len(missing_cols)))
+        ax.set_yticks(range(len(missing_cols)))
+        ax.set_xticklabels(missing_cols, rotation=45, ha="right", fontsize=9)
+        ax.set_yticklabels(missing_cols, fontsize=9)
+        ax.set_title("Missingness Correlation Heatmap", fontsize=14, fontweight="bold")
+
+        # Annotate cells
+        for i in range(len(missing_cols)):
+            for j in range(len(missing_cols)):
+                val = miss_corr.values[i, j]
+                color = "white" if abs(val) > 0.6 else "black"
+                ax.text(j, i, f"{val:.2f}", ha="center", va="center", fontsize=8, color=color)
+
+        fig.colorbar(im, ax=ax, shrink=0.8)
+        plt.tight_layout()
+        path = save_and_show(fig, state, "missing_corr_heatmap.png")
+        images.append(path)
+        plt.close()
+
+    # ── State assignment ─────────────────────────────────────────────────
     state["nodes"]["missing"] = {
         "status":            "classified",
         "results":           results,
         "columns_to_drop":   to_drop,
         "columns_to_impute": to_impute,
+        "images":            images,
     }
 
     narrative = narrate("Missing Value Classification", {
@@ -84,7 +170,7 @@ def missing(state: dict) -> dict:
             for col, r in results.items()
         }
     })
-    add_section(state, "Missing Value Classification", narrative)
+    add_section(state, "Missing Value Classification", narrative, images)
     return state
 
 

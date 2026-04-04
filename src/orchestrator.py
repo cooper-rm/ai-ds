@@ -22,6 +22,8 @@ from src.nodes.profile.distributions import distributions
 from src.nodes.profile.outliers import outliers
 from src.nodes.profile.correlations import correlations
 from src.nodes.profile.bivariate import bivariate
+from src.nodes.profile.dimensionality import dimensionality
+from src.nodes.profile.leakage import leakage
 from src.nodes.profile.synthesis import synthesis
 from src.nodes.profile.finalize_report import finalize_report
 from src.nodes.preprocessing.drop_columns import drop_columns
@@ -50,6 +52,8 @@ pipelines = {
             outliers,
             correlations,
             bivariate,
+            dimensionality,
+            leakage,
             synthesis,
             drop_columns,
             impute,

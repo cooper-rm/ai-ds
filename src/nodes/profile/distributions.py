@@ -14,6 +14,7 @@ analytical type (from classify):
 Also generates a grid summary image of all numeric distributions,
 and records skewness + kurtosis for each numeric column.
 """
+import warnings
 import numpy as np
 import matplotlib
 matplotlib.use("Agg")
@@ -79,17 +80,27 @@ def distributions(state: dict) -> dict:
         kurtosis  = round(float(series.kurtosis()), 4)
         shape_tag = _shape_tag(skewness)
 
+        # ── Normality test battery ────────────────────────────────────────
+        normality_results = _normality_tests(series)
+        is_normal = normality_results["is_normal"]
+
+        # ── Distribution fitting (KS goodness-of-fit) ────────────────────
+        best_dist, best_ks = _best_fit_distribution(series)
+
         img = _plot_numeric(df, col, col_type, skewness, kurtosis, state)
         per_col[col] = {
             "type": col_type,
             "skewness": skewness,
             "kurtosis": kurtosis,
             "shape": shape_tag,
+            "normality": normality_results,
+            "best_fit": {"distribution": best_dist, "ks_statistic": best_ks},
             "plot": str(img) if img else None,
         }
         if img:
             images.append(img)
         print_info(f"{col}: skew={skewness:+.2f}  kurtosis={kurtosis:.2f}  [{shape_tag}]")
+        print_info(f"{col}: normality={'yes' if is_normal else 'no'}  best_fit={best_dist}")
 
     # ── Categorical columns ───────────────────────────────────────────────────
     rare_categories = {}
@@ -144,7 +155,13 @@ def distributions(state: dict) -> dict:
 
     narrative = narrate("Distributions", {
         "numeric_summary": {
-            col: {"skewness": v["skewness"], "shape": v["shape"]}
+            col: {
+                "skewness": v["skewness"],
+                "shape": v["shape"],
+                "is_normal": v.get("normality", {}).get("is_normal"),
+                "best_fit": v.get("best_fit", {}).get("distribution"),
+                "best_fit_ks": v.get("best_fit", {}).get("ks_statistic"),
+            }
             for col, v in per_col.items()
             if "skewness" in v
         },
@@ -163,11 +180,11 @@ def distributions(state: dict) -> dict:
 # ── Numeric plot ──────────────────────────────────────────────────────────────
 
 def _plot_numeric(df, col, col_type, skewness, kurtosis, state):
-    """Histogram + KDE left panel, box plot right panel."""
+    """Histogram + KDE left panel, Q-Q middle panel, box plot right panel."""
     series = df[col].dropna().astype(float)
 
-    fig, axes = plt.subplots(1, 2, figsize=(11, 4),
-                             gridspec_kw={"width_ratios": [3, 1]})
+    fig, axes = plt.subplots(1, 3, figsize=(15, 4),
+                             gridspec_kw={"width_ratios": [3, 2, 1]})
     fig.patch.set_facecolor("white")
 
     bins = _nice_bins(series)
@@ -200,14 +217,26 @@ def _plot_numeric(df, col, col_type, skewness, kurtosis, state):
         fontsize=11, fontweight="bold"
     )
 
+    # Q-Q plot
+    stats.probplot(series, dist="norm", plot=axes[1])
+    # Add a reference diagonal line (the probplot adds one, but reinforce it)
+    axes[1].get_lines()[1].set_color("#C44E52")
+    axes[1].get_lines()[1].set_linewidth(2)
+    axes[1].get_lines()[0].set_markerfacecolor("#4C72B0")
+    axes[1].get_lines()[0].set_markeredgecolor("#4C72B0")
+    axes[1].get_lines()[0].set_markersize(3)
+    axes[1].set_title("Q-Q Plot (Normal)", fontsize=11, fontweight="bold")
+    axes[1].set_xlabel("Theoretical Quantiles")
+    axes[1].set_ylabel("Sample Quantiles")
+
     # Box plot
-    bp = axes[1].boxplot(series, patch_artist=True, widths=0.5,
+    bp = axes[2].boxplot(series, patch_artist=True, widths=0.5,
                          medianprops={"color": "#C44E52", "linewidth": 2})
     bp["boxes"][0].set_facecolor("#4C72B0")
     bp["boxes"][0].set_alpha(0.6)
-    axes[1].set_xticks([])
-    axes[1].set_ylabel(col)
-    axes[1].set_title("Box plot", fontsize=11, fontweight="bold")
+    axes[2].set_xticks([])
+    axes[2].set_ylabel(col)
+    axes[2].set_title("Box plot", fontsize=11, fontweight="bold")
 
     plt.tight_layout()
     path = save_and_show(fig, state, f"dist_{col.lower()}.png")
@@ -327,6 +356,120 @@ def _plot_numeric_grid(numeric_cols, df, state):
     path = save_and_show(fig, state, "distributions_grid.png")
     plt.close()
     return path
+
+
+# ── Normality testing ────────────────────────────────────────────────────
+
+def _normality_tests(series):
+    """
+    Run a battery of normality tests and return a summary dict.
+    Tests: Shapiro-Wilk, Anderson-Darling, Jarque-Bera, D'Agostino-Pearson.
+    """
+    results = {}
+    normal_votes = 0
+    total_votes  = 0
+
+    # Shapiro-Wilk (best for n < 5000; scipy caps at 5000 internally)
+    try:
+        sw_stat, sw_p = stats.shapiro(series[:5000])
+        results["shapiro_wilk"] = {
+            "statistic": round(float(sw_stat), 6),
+            "p_value": round(float(sw_p), 6),
+        }
+        total_votes += 1
+        if sw_p > 0.05:
+            normal_votes += 1
+    except Exception:
+        results["shapiro_wilk"] = {"error": "could not compute"}
+
+    # Anderson-Darling
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            ad_result = stats.anderson(series, dist="norm")
+        # Extract the critical value at 5% significance (index 2 = 5%)
+        crit_5pct = float(ad_result.critical_values[2])
+        ad_stat   = float(ad_result.statistic)
+        ad_normal = ad_stat < crit_5pct
+        results["anderson_darling"] = {
+            "statistic": round(ad_stat, 6),
+            "critical_value_5pct": round(crit_5pct, 6),
+            "is_normal": ad_normal,
+        }
+        total_votes += 1
+        if ad_normal:
+            normal_votes += 1
+    except Exception:
+        results["anderson_darling"] = {"error": "could not compute"}
+
+    # Jarque-Bera
+    try:
+        jb_stat, jb_p = stats.jarque_bera(series)
+        results["jarque_bera"] = {
+            "statistic": round(float(jb_stat), 6),
+            "p_value": round(float(jb_p), 6),
+        }
+        total_votes += 1
+        if jb_p > 0.05:
+            normal_votes += 1
+    except Exception:
+        results["jarque_bera"] = {"error": "could not compute"}
+
+    # D'Agostino-Pearson omnibus test (requires n >= 20)
+    try:
+        if len(series) >= 20:
+            dp_stat, dp_p = stats.normaltest(series)
+            results["dagostino_pearson"] = {
+                "statistic": round(float(dp_stat), 6),
+                "p_value": round(float(dp_p), 6),
+            }
+            total_votes += 1
+            if dp_p > 0.05:
+                normal_votes += 1
+        else:
+            results["dagostino_pearson"] = {"error": "n < 20, test skipped"}
+    except Exception:
+        results["dagostino_pearson"] = {"error": "could not compute"}
+
+    # Majority vote
+    is_normal = (normal_votes > total_votes / 2) if total_votes > 0 else False
+    results["is_normal"] = is_normal
+    results["votes_normal"] = normal_votes
+    results["votes_total"] = total_votes
+
+    return results
+
+
+def _best_fit_distribution(series):
+    """
+    Fit common distributions via KS goodness-of-fit and return
+    (best_distribution_name, ks_statistic).
+    """
+    candidates = {
+        "norm":    stats.norm,
+        "lognorm": stats.lognorm,
+        "expon":   stats.expon,
+        "gamma":   stats.gamma,
+        "beta":    stats.beta,
+    }
+
+    best_name = "norm"
+    best_ks   = float("inf")
+
+    for name, dist in candidates.items():
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                params = dist.fit(series)
+                ks_stat, _ = stats.kstest(series, name, args=params)
+            ks_stat = round(float(ks_stat), 6)
+            if ks_stat < best_ks:
+                best_ks   = ks_stat
+                best_name = name
+        except Exception:
+            continue
+
+    return best_name, best_ks
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

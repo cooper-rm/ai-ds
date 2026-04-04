@@ -8,6 +8,8 @@ from src.terminal import (
 )
 from src.nodes.intake.analyze_file import analyze_file
 from src.nodes.intake.load_data import load_data
+from src.nodes.intake.split_data import split_data
+from src.nodes.intake.interview import interview
 from src.nodes.profile.summarize import summarize
 from src.nodes.profile.memory_analysis import memory_analysis
 from src.nodes.profile.types import types
@@ -24,6 +26,11 @@ from src.nodes.profile.correlations import correlations
 from src.nodes.profile.bivariate import bivariate
 from src.nodes.profile.dimensionality import dimensionality
 from src.nodes.profile.leakage import leakage
+from src.nodes.profile.target_analysis import target_analysis
+from src.nodes.profile.interactions import interactions
+from src.nodes.profile.assumptions import assumptions
+from src.nodes.profile.stability import stability
+from src.nodes.profile.checkpoint import checkpoint
 from src.nodes.profile.synthesis import synthesis
 from src.nodes.profile.finalize_report import finalize_report
 from src.nodes.preprocessing.drop_columns import drop_columns
@@ -38,6 +45,8 @@ from src.nodes.preprocessing.feature_selection import feature_selection
 pipelines = {
     "eda": [analyze_file,
             load_data,
+            split_data,
+            interview,
             summarize,
             memory_analysis,
             types,
@@ -54,6 +63,11 @@ pipelines = {
             bivariate,
             dimensionality,
             leakage,
+            target_analysis,
+            interactions,
+            assumptions,
+            stability,
+            checkpoint,
             synthesis,
             drop_columns,
             impute,
@@ -157,9 +171,19 @@ def orchestrator(state: dict) -> dict:
     # Reload data if resuming from a saved state (load_state sets data=None)
     if state["data"] is None and "load_data" in state.get("history", []):
         import pandas as pd
-        state["data"] = pd.read_csv(state["filepath"])
-        print_step("reload_data")
-        print_done("reload_data", f"{len(state['data'])} rows")
+        full_df = pd.read_csv(state["filepath"])
+
+        # If data was split, reload only the training split
+        split_info = state.get("nodes", {}).get("split_data", {})
+        train_indices = state.get("split_indices", {}).get("train")
+        if split_info.get("status") == "done" and train_indices:
+            state["data"] = full_df.loc[full_df.index.isin(train_indices)]
+            print_step("reload_data")
+            print_done("reload_data", f"{len(state['data'])} rows (train split)")
+        else:
+            state["data"] = full_df
+            print_step("reload_data")
+            print_done("reload_data", f"{len(state['data'])} rows")
 
     pipeline = pipelines[goal]
 

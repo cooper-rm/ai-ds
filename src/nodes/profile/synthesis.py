@@ -84,6 +84,26 @@ def synthesis(state: dict) -> dict:
             ][:10],
         },
         "rare_categories": list(nodes.get("distributions", {}).get("rare_categories", {}).keys()),
+        "research_context": {
+            "target_column": state.get("research_context", {}).get("target_column"),
+            "research_goal": state.get("research_context", {}).get("research_goal"),
+            "domain_context": state.get("research_context", {}).get("domain_context"),
+            "analysis_priorities": state.get("research_context", {}).get("analysis_priorities", []),
+            "user_adjustments": state.get("research_context", {}).get("user_adjustments"),
+        },
+        "target_analysis": {
+            "imbalanced": nodes.get("target_analysis", {}).get("imbalanced"),
+            "class_balance": nodes.get("target_analysis", {}).get("class_balance"),
+            "top_features": nodes.get("target_analysis", {}).get("feature_importance_ranking", [])[:10],
+        },
+        "assumptions": {
+            "levene_violations": len(nodes.get("assumptions", {}).get("levene", {}).get("violations", [])),
+            "durbin_watson_flags": len(nodes.get("assumptions", {}).get("durbin_watson", {}).get("flagged", [])),
+            "breusch_pagan_flags": len([
+                r for r in nodes.get("assumptions", {}).get("breusch_pagan", {}).get("results", [])
+                if r.get("heteroscedastic")
+            ]),
+        },
     }
 
     prompt = f"""You are producing a machine-actionable preprocessing plan from profiling results.

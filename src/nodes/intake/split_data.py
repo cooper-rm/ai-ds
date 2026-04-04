@@ -363,6 +363,20 @@ def split_data(state: dict) -> dict:
                 print_detail("test period", test_range)
             except Exception:
                 pass
+
+        # Measure drift across splits (report only — no re-shuffling for temporal)
+        best_max_psi, psi_details = _check_split_stability(df_train, df_test)
+        print_info(f"temporal drift (train→test): max PSI={best_max_psi:.4f}")
+        drifted = {col: psi for col, psi in psi_details.items() if psi > 0.2}
+        moderate = {col: psi for col, psi in psi_details.items() if 0.1 < psi <= 0.2}
+        if drifted:
+            for col, psi in sorted(drifted.items(), key=lambda x: -x[1]):
+                print_warning(f"  {col}: PSI={psi:.4f} — significant drift")
+        if moderate:
+            for col, psi in sorted(moderate.items(), key=lambda x: -x[1]):
+                print_info(f"  {col}: PSI={psi:.4f} — moderate drift")
+        if not drifted and not moderate:
+            print_info("  all features stable across time periods")
     else:
         # Shuffled split — stratify if method is stratified and target exists
         stratified = False
